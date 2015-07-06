@@ -1,0 +1,6 @@
+#!/bin/bash
+u=$(xsel)
+notify-send "Url opened" "$u"
+grep -q "^.{3,5}://" <<< "$u" && firefox "$u" && exit
+grep -Eq "\.[a-z]{2,3}" <<< "$u" && firefox "$u" && exit
+firefox "https://duckduckgo.com/html?q=$u" && exit
