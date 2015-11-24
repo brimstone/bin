@@ -1,0 +1,11 @@
+#!/bin/sh
+port=$1
+shift 1
+#[ -e "/tmp/socksify.$port" ] && echo "Something's already using $port?" && exit
+cat <<EOF > /tmp/socksify.$port
+server = 127.0.0.1
+server_port = $port
+EOF
+export TSOCKS_CONF_FILE=/tmp/socksify.$port
+tsocks $@
+#rm /tmp/socksify.$port
