@@ -1,0 +1,76 @@
+#!/bin/bash
+
+keypress() {
+	echo "Pressing $1"
+	curl -d '' http://10.42.0.233:8060/keypress/"$1"
+}
+
+key="${1:-}"
+
+if [ -n "$key" ]; then
+	keypress "$key"
+	exit
+fi
+
+while :; do
+	read -sn 1 key
+	case "$key" in
+		g)
+			keypress "InstantReplay"
+		;;
+		h)
+			keypress "left"
+		;;
+		j)
+			keypress "down"
+		;;
+		k)
+			keypress "up"
+		;;
+		l)
+			keypress "right"
+		;;
+		i)
+			keypress "Info"
+		;;
+		"")
+			keypress "select"
+		;;
+		q)
+			keypress "back"
+		;;
+		p)
+			keypress "play"
+		;;
+		"0")
+			keypress "VolumeUp"
+		;;
+		"9")
+			keypress "VolumeDown"
+		;;
+		v)
+			echo "free text input mode"
+			while read -sn 1 button; do
+				case "$button" in 
+					"")
+						break
+					;;
+					$'\x1b')
+						echo "escape"
+						break
+					;;
+					$'\x7f')
+						keypress "Backspace"
+					;;
+					*)
+						keypress "Lit_$button"
+					;;
+				esac
+			done
+		;;
+		*)
+			printf "$key" | hexdump -C
+			echo "I don't know how to handle \"$key\""
+		;;
+	esac
+done
