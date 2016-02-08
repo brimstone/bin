@@ -2,8 +2,18 @@
 
 keypress() {
 	echo "Pressing $1"
-	curl -d '' http://10.42.0.233:8060/keypress/"$1"
+	curl -d '' ${ROKU}keypress/"$1"
 }
+
+
+ROKU="$((printf "M-SEARCH * HTTP/1.1\nHost: 239.255.255.250:1900\nMan: \"ssdp:discover\"\nST: roku:ecp\n"; sleep 1) | socat -T1 - UDP4-DATAGRAM:239.255.255.250:1900 | awk '/LOCATION/ {print $2}')"
+
+if [ -z "$ROKU" ]; then
+	echo "Didn't find a roku on the network"
+	exit 1
+else
+	echo "Roku found at $ROKU"
+fi
 
 key="${1:-}"
 
