@@ -2,14 +2,15 @@
 
 keypress() {
 	echo "Pressing $1"
-	curl -d '' ${ROKU}keypress/"$1"
+	curl -m 2 -d '' ${ROKU}keypress/"$1" || echo "Error sending request to ${ROKU}"
 }
 
 
-ROKU="$((printf "M-SEARCH * HTTP/1.1\nHost: 239.255.255.250:1900\nMan: \"ssdp:discover\"\nST: roku:ecp\n"; sleep 1) | socat -T1 - UDP4-DATAGRAM:239.255.255.250:1900 | awk '/LOCATION/ {print $2}')"
+ROKU="${ROKU:-$((printf "M-SEARCH * HTTP/1.1\nHost: 239.255.255.250:1900\nMan: \"ssdp:discover\"\nST: roku:ecp\n"; sleep 5) | socat -T1 - UDP4-DATAGRAM:239.255.255.250:1900 | awk '/LOCATION/ {gsub("\r", "", $2); print $2}')}"
 
 if [ -z "$ROKU" ]; then
 	echo "Didn't find a roku on the network"
+	echo "Try setting ROKU to something like \"http://192.168.1.134:8060/\""
 	exit 1
 else
 	echo "Roku found at $ROKU"
@@ -25,6 +26,9 @@ fi
 while :; do
 	read -sn 1 key
 	case "$key" in
+		w)
+			keypress "Home"
+		;;
 		g)
 			keypress "InstantReplay"
 		;;
@@ -46,6 +50,9 @@ while :; do
 		"")
 			keypress "select"
 		;;
+		\x1b)
+			keypress "back"
+		;;
 		q)
 			keypress "back"
 		;;
@@ -57,6 +64,12 @@ while :; do
 		;;
 		"9")
 			keypress "VolumeDown"
+		;;
+		t)
+			keypress Rev
+		;;
+		y)
+			keypress Fwd
 		;;
 		v)
 			echo "free text input mode"
