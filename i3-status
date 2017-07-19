@@ -1,0 +1,30 @@
+#!/bin/bash
+while true; do
+	status=""
+	if [ -f /tmp/i3 ]; then
+		if [ -x /tmp/i3 ]; then
+			status="[$(/tmp/i3 | head -n 1)]"
+		else
+			status="[$(head -n 1 /tmp/i3)]"
+		fi
+	fi
+
+b="$(acpi -b)"
+p="${b%%%*}"
+p="${p##* }"
+t="${b% *}"
+if [[ "$b" =~ "Discharging" ]]; then
+	t="${t##* }"
+	status="$status[$t $p%]"
+elif [[ "$b" =~ "Charging" ]]; then
+	t="${t% *}"
+	t="${t##* }"
+	status="$status[$t⚡$p%]"
+elif [[ "$b" =~ "Unknown" ]]; then
+	status="$status[$p%]"
+else
+	status="$status[$b]"
+fi
+	printf "%s\n" "$status[$(date +"%a %b %d ($(date -u +%H))%T")]"
+	sleep 1
+done
