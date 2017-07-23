@@ -1,0 +1,509 @@
+#!/bin/bash
+#
+# Copyright (C) 2013 Nathan Warner <nathan@frcv.net>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+# Sets useful variables in your bash scripts
+#
+# History:
+# 2013-08-09, brimstone@the.narro.ws:
+#       v0.9: Fixed spelling errors
+#             Major rework of runall and main function resulting in a runonce
+#               function for scripts that load bashter once then run their
+#               own loop
+#             Made cli use of bashter slightly more efficient
+#             Added getoom function
+# 2013-08-07, brimstone@the.narro.ws:
+#       v0.8: Moved locking up so it doesn't stop on itself
+#           : Fixed spelling error
+# 2013-05-07, nathan@frcv.net:
+#       v0.7: Bug fixes
+# 2013-04-15, nathan@frcv.net:
+#       v0.6: Added refresh
+# 2013-04-15, nathan@frcv.net:
+#       v0.5: Added getsysupdates.
+#           : Also moved to dir, and added a readme.
+# 2013-04-08, nathan@frcv.net:
+#       v0.4: Added xscreensaver activity.
+#           : Functions now in groups, this helps with documentation.
+# 2013-04-04, nathan@frcv.net, brimstone@the.narrow.ws:
+#       v0.3: Removed evalall from save.
+#           : Fixed disk naming be consistent
+#           : Used flock to make multiple instances play nicely.
+# 2013-02-23, nathan@frcv.net:
+#       v0.2: Can be called with command line arguments.
+#           : Also print help file.
+# 2013-02-06, nathan@frcv.net:
+#       v0.1: Initial release with support for getload, getmem
+#           : getip and sshagent
+#
+# Requires:
+#   * awk
+#   * grep
+#   * wget
+#   * ip
+#   * flock
+#
+# Usage:
+#   1.  Declare classes: declare -a CLASS_#=(timeout_in_sec, 'function_name')
+#   2.  Set Memfile Loc: MEMFILE=/file/stored/in/ram
+#   3a. Include bashter: source baster
+#   3b. Run normally   : ./bashter function_name
+#   4.  Use Variables  : echo $STAT_LOAD
+
+# Declare update classes
+declare -a  CLASS_1=(3 'getload' 'getmem' 'getnetspeed' 'getcpu' 'gettemp' 'getoom')
+declare -a  CLASS_2=(30 'getip' 'getbatt' 'getgw' 'getessid' 'screensaver')
+declare -a  CLASS_3=(60 'sshagent' 'getdisks')
+declare -a  CLASS_4=(300 'getexternalip' 'getsysupdates')
+
+# Where the cache file is going to be stored.
+MEMFILE=/run/shm/stats.bash
+#MEMFILE=/tmp/stats.bash
+
+############################  Start Stat Functions #############################################
+#DOC                                HARDWARE
+#DOC -------------------------------------------------------------------------------------------
+#DOC getbatt       : Sets Battery usage stats.
+#DOC                   STAT_BATT_P : Percent
+#DOC                   STAT_BATT_C : Charging
+#DOC                   STAT_BATT_T : Time Remaining
+F_getbatt () {
+  local prefix="BATT"
+  unsett $prefix
+  local acpi=$(acpi -b 2>/dev/null)
+  local tmp=${acpi%%%*}
+  local BATTP=${tmp##* }
+  [ "$BATTP" = "" ] && return
+  STAT_BATT_P="$BATTP"
+
+  #Battery 0: Discharging, 93%, 01:46:45 remaining
+  if [ $(grep -c "Charging" <<< "$acpi") = 1 ]; then
+    STAT_BATT_C="1"
+    #Battery 0: Charging, 93%, 00:12:01 until charged
+    local tmp=${acpi% *}
+    local tmp=${tmp% *}
+    STAT_BATT_T="${tmp##* }"
+  elif [ $(grep -c "Unknown" <<< "$acpi") = 1 ]; then
+    STAT_BATT_C="1"
+  else
+    if [ "$BATTP" != 100 ]; then
+      #Battery 0: Discharging, 93%, 01:46:45 remaining
+      STAT_BATT_C="0"
+      local tmp=${acpi% *}
+      STAT_BATT_T="${tmp##* }"
+    else
+      #Battery 0: Full, 100%
+      STAT_BATT_C="0"
+    fi
+  fi
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getcpu        : Sets STAT_CPU_P_CPU[num] with percent used cpu.
+#DOC                   Note: Has to run at least twice one sec apart.
+# Sets STAT_CPU_P_CPU[num]
+F_getcpu () {
+  local prefix="CPU"
+  unsett $prefix
+  # If we don't have previous data, make it and bail
+  if [ ! $GLOBAL_CPU_TOTAL_CPU0 ]; then
+    eval $(cat /proc/stat | awk '/cpu[0-9]+/ { for(i=1;i<=NF;i++){sum+=$i; ++n} print "GLOBAL_CPU_TOTAL_"toupper($1)"="sum }')
+    eval $(cat /proc/stat | awk '/cpu[0-9]+/ { for(i=1;i<=4;i++){sum+=$i; ++n} print "GLOBAL_CPU_WORK_"toupper($1)"="sum }')
+    return
+  fi
+
+  # eval temp latest net stats
+  eval $(cat /proc/stat | awk '/cpu[0-9]+/ { for(i=1;i<=NF;i++){sum+=$i; ++n} print "local TMP_CPU_TOTAL_"toupper($1)"="sum }')
+  eval $(cat /proc/stat | awk '/cpu[0-9]+/ { for(i=1;i<=4;i++){sum+=$i; ++n} print "local TMP_CPU_WORK_"toupper($1)"="sum }')
+
+  # loop through each cpu
+  for cpu in $( cat /proc/stat | awk '/cpu[0-9]+/ { print toupper($1)}'); do
+    #get total jiffies over the period
+    local total_over_period=$((TMP_CPU_TOTAL_$cpu - GLOBAL_CPU_TOTAL_$cpu))
+    #get work jiffies over the period
+    local work_over_period=$((TMP_CPU_WORK_$cpu - GLOBAL_CPU_WORK_$cpu))
+    #funky since bash doesn't have floating points
+    local percent=$(((work_over_period*100)/$total_over_period))
+
+    # set final values
+    eval "STAT_CPU_P_$cpu=$percent"
+    eval "GLOBAL_CPU_TOTAL_$cpu=\$TMP_CPU_TOTAL_$cpu"
+    eval "GLOBAL_CPU_WORK_$cpu=\$TMP_CPU_WORK_$cpu"
+  done
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getdisks      : Sets Disk usage stats.
+#DOC                   STAT_DISK[num]_DEV   : Device
+#DOC                   STAT_DISK[num]_TYPE  : File System Type
+#DOC                   STAT_DISK[num]_SIZE  : Disk Space in MB
+#DOC                   STAT_DISK[num]_USED  : Used Disk Space in MB
+#DOC                   STAT_DISK[num]_USEDP : Percent Used Disk Space
+#DOC                   STAT_DISK[num]_FREE  : Free Disk Space in MB
+#DOC                   STAT_DISK[num]_FREEP : Percent Free Disk Space
+#DOC                   STAT_DISK[num]_MNT   : Mount Directory
+#DOC                   STAT_DISK_NUM        : Number of Disks
+F_getdisks () {
+  local prefix="DISK"
+  unsett $prefix
+  eval $(df -lTP -x devtmpfs -x tmpfs -x rootfs | sort | awk 'BEGIN { d = 0 }
+  /^[^F]/ {
+  	d=d+1
+  	print "STAT_DISK" d "_DEV=\"" $1 "\""
+  	print "STAT_DISK" d "_TYPE=\"" $2 "\""
+  	printf("STAT_DISK" d "_SIZE=\"%d\"\n", $3 / 1024)
+  	printf("STAT_DISK" d "_USED=\"%d\"\n", $4 / 1024)
+  	printf("STAT_DISK" d "_USEDP=\"%d\"\n", $6)
+  	printf("STAT_DISK" d "_FREE=\"%d\"\n", $5 / 1024)
+  	printf("STAT_DISK" d "_FREEP=\"%d\"\n", (100-$6))
+  	print "STAT_DISK" d "_MNT=\"" $7 "\""
+  }
+  END {
+  	print "STAT_DISK_NUM=\"" d "\""
+  }')
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getload       : Sets STAT_LOAD to current load.
+F_getload () {
+  local prefix="LOAD"
+  unsett $prefix
+  local LOADAVG=$(< /proc/loadavg)
+  STAT_LOAD="${LOADAVG%% *}"
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getmdeta      : Sets STAT_RAID_MDETA to time until mdraid is finished its current processes.
+F_getmdeta () {
+  [ -e /proc/mdstat ] || return
+  local prefix="RAID"
+  unsett $prefix
+  STAT_RAID_MDETA=$(date -d "$(grep finish /proc/mdstat 2>/dev/null | sed -e 's/^.*finish=//;s/ .*$//;s/\..*$//')min")
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getmem        : Sets Memory usage stats.
+#DOC                   STAT_MEM_U      : used
+#DOC                   STAT_MEM_F      : free
+#DOC                   STAT_MEM_T      : total
+#DOC                   STAT_MEM_UP     : Used Percent
+#DOC                   STAT_MEM_COMMIT : Percent of memory applications have requested
+#DOC                                   : This could be over 100% if you've over committed memory
+F_getmem () {
+  local prefix="MEM"
+  unsett $prefix
+  local MEMU="$(free -m | awk '/Mem/ {print $3}')"
+  STAT_MEM_U="$MEMU"
+  local MEMF="$(free -m | awk '/Mem/ {print $4}')"
+  STAT_MEM_F="$MEMF"
+  local MEMT=$(( $MEMU + $MEMF ))
+  STAT_MEM_T="$MEMT"
+  STAT_MEM_UP="$[ $MEMU * 100 / $MEMT ]"
+  STAT_MEM_COMMIT="$(awk "/MemTotal:/ { total=\$2 } /Committed_AS:/ { commit=\$2 } END { print (commit/total) * 100 }" /proc/meminfo)"
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getoom        : Sets top Out-Of-Memory Killer target
+#DOC                   STAT_OOM_PID		: pid
+#DOC                   STAT_OOM_CMD		: cmd
+F_getoom () {
+  local prefix="OOM"
+  unsett $prefix
+  read -ru3 STAT_OOM_PID STAT_OOM_CMD 3< <(
+  for d in /proc/[0-9]*; do
+    score="$(< $d/oom_score)"
+    [ -n "$score" -a "$score" -gt 0 ] && printf "%3d %s\n" $score $(sed -e 's/\x0.*//'< $d/cmdline)
+  done 2>/dev/null | sort -rn | head -1)
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC gettemp       : Sets STAT_TEMP to acpi -t
+F_gettemp () {
+  local prefix="TEMP"
+  unsett $prefix
+  local tmp=$(acpi -t 2>/dev/null)
+  [ "$tmp" = "" ] && return
+  eval $(echo $tmp | awk '{ printf "STAT_TEMP=\"%.0f\"", $4 }')
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC 
+#DOC                                NETWORK
+#DOC -------------------------------------------------------------------------------------------
+
+#DOC getessid      : Sets STAT_ESSID_[interface] with essid.
+F_getessid () {
+  local prefix="ESSID"
+  unsett $prefix
+  eval $(/sbin/iwconfig 2>/dev/null| awk '/ESSID/ {gsub(/ .*ESSID:./, " ", $0); gsub(/"[^"]*$/, "", $0); print "STAT_ESSID_"toupper($1)"="$2}')
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getexternalip : Sets STAT_EXT_IP to your external IP address.
+F_getexternalip () {
+  local prefix="EXT_IP"
+  unsett $prefix
+  local IP=$(wget --quiet --output-document=- --timeout=3 ip.appspot.com)
+  [ -n $IP ] && STAT_EXT_IP=$IP
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getgw         : Sets STAT_GW_DEF to you default gateway device.
+F_getgw() {
+  local prefix="GW"
+  unsett $prefix
+  local GW=$(ip route get 4.2.2.2 2>/dev/null | awk '/dev/ {print toupper($5)}')
+  [ -n $GW ] && STAT_GW_DEF=$GW
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getip         : Sets STAT_IP_[interface].
+F_getip () {
+  local prefix="IP"
+  unsett $prefix
+  if which ifconfig >/dev/null; then
+    eval $(ifconfig | awk 'BEGIN { FS=":| +"} /^[a-z]/ {dev=$1} /inet addr/ {printf "STAT_IP_%s=\"%s\"\n", toupper(dev), $4}')
+  elif which ip >/dev/null; then
+    eval $(ip -o addr | awk 'BEGIN { FS=":| +|/"} /inet / {printf "STAT_IP_%s=\"%s\"\n", toupper($3), $5}')
+  else
+   return
+  fi
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC getnetspeed   : Sets STAT_NETSPEED_RCV_[device] and STAT_NETSPEED_TX_[device] with Bps.
+#DOC                   Note: Has to run at least twice one sec apart.
+F_getnetspeed() {
+  local prefix="NETSPEED"
+  unsett $prefix
+
+  # If we don't have previous data, make it and bail
+  if [ ! $GLOBAL_NETSPEED_RCV_LO ]; then
+    eval $(awk 'sub(/\:/, " ") {print "GLOBAL_NETSPEED_RCV_"toupper($1)"="$2 "\nGLOBAL_NETSPEED_TX_"toupper($1)"="$10}' /proc/net/dev)
+    GLOBAL_NETSPEED_LTIME=$CTIME
+    return
+  fi
+
+  # time since last run
+  TMP_NETSPEED_LTIME=$(($CTIME - $GLOBAL_NETSPEED_LTIME))
+  [ $TMP_NETSPEED_LTIME == 0 ] && TMP_NETSPEED_LTIME=1
+
+  # eval temp latest net stats
+  eval $(awk 'sub(/\:/, " ") {print "local TMP_NETSPEED_RCV_"toupper($1)"="$2 " local TMP_NETSPEED_TX_"toupper($1)"="$10}' /proc/net/dev)
+
+  # loop through each net device
+  for int in $(awk 'sub(/\:/, " ") {print toupper($1)}' /proc/net/dev); do
+    # get the number of bytes changed
+    RCV_SPEED=$((TMP_NETSPEED_RCV_$int - GLOBAL_NETSPEED_RCV_$int))
+    # divide num of changed bytes by the update interval
+    [ $RCV_SPEED != 0 ] && RCV_SPEED=$(($RCV_SPEED / $TMP_NETSPEED_LTIME))
+    # eval bytes per sec
+    eval "STAT_NETSPEED_RCV_$int=$RCV_SPEED"
+
+    TX_SPEED=$((TMP_NETSPEED_TX_$int - GLOBAL_NETSPEED_TX_$int))
+    [ $TX_SPEED != 0 ] && TX_SPEED=$((TX_SPEED / TMP_NETSPEED_LTIME))
+    eval "STAT_NETSPEED_TX_$int=$TX_SPEED"
+
+    # save the current bytes to check next time
+    eval "GLOBAL_NETSPEED_RCV_$int=\$TMP_NETSPEED_RCV_$int"
+    eval "GLOBAL_NETSPEED_TX_$int=\$TMP_NETSPEED_TX_$int"
+  done
+  # save the current time for checks next time
+  GLOBAL_NETSPEED_LTIME=$CTIME
+  [ $1 ] && printSTAT $prefix
+}
+#DOC 
+#DOC                                SOFTWARE
+#DOC -------------------------------------------------------------------------------------------
+#DOC getsysupdates : Sets STAT_SYSUPDATES to number of packages needing update or -1 if error.
+F_getsysupdates () {
+  local prefix="SYSUPDATES"
+  unsett $prefix
+  if [ ! $GLOBAL_SYSUPDATES ]; then
+    GLOBAL_SYSUPDATES=$CTIME
+  fi
+
+  # if we have apt-get
+  if which apt-get &> /dev/null; then
+      # get mtime of pkgcache, if it doesn't exist bail
+      if [ -f /var/cache/apt/pkgcache.bin ]; then
+        local pkgcache=`stat -c %Y /var/cache/apt/pkgcache.bin`
+      else
+        STAT_SYSUPDATES=-1
+        [ $1 ] && printSTAT $prefix
+        GLOBAL_SYSUPDATES=$CTIME
+        return
+      fi
+
+      # get mtime of status
+      if [ -f /var/lib/dpkg/status ]; then
+        local pkgstatus=`stat -c %Y /var/lib/dpkg/status`
+      else
+        local pkgstatus=$CTIME
+      fi
+
+      # if we haven't run since last apt-get update, run now
+      if [ ! "$STAT_SYSUPDATES" -o $GLOBAL_SYSUPDATES -le  $pkgcache -o $GLOBAL_SYSUPDATES -le $pkgstatus ]; then
+        STAT_SYSUPDATES=`apt-get --just-print --quiet --quiet dist-upgrade | grep --count "^Inst"`
+      fi
+  else
+    # TODO: other package managers
+    STAT_SYSUPDATES=-1
+  fi
+  GLOBAL_SYSUPDATES=$CTIME
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC screensaver   : Sets STAT_SCREENSAVER_ACTIVE to 0 or 1 based on if xscreensaver is locked.
+F_screensaver () {
+  local prefix="SCREENSAVER"
+  unsett $prefix
+  if which xscreensaver-command &> /dev/null; then
+    STAT_SCREENSAVER_ACTIVE=`xscreensaver-command -time 2>/dev/null | grep -c locked`
+    [ $1 ] && printSTAT $prefix
+  fi
+}
+
+#DOC sshagent      : Sets STAT_SSH_AGENT to 0 or 1 based on if ssh-add has identities set.
+F_sshagent () {
+  local prefix="SSH"
+  unsett $prefix
+  if [ $(ssh-add -l 2>/dev/null | grep -c "no identities.") = 1 ]; then
+    STAT_SSH_AGENT="0"
+  else
+    STAT_SSH_AGENT="1"
+  fi
+  [ $1 ] && printSTAT $prefix
+}
+
+#DOC 
+#DOC                                MAINTENANCE
+#DOC -------------------------------------------------------------------------------------------
+#DOC refresh       : Delete and recreate the cache.  Run this if something is weird.
+refresh () {
+  rm $MEMFILE
+  runonce
+  exit
+}
+
+############################  End Stat Functions #############################################
+
+# Save all STAT variables to the MEMFILE
+save(){
+  set | grep ^STAT_ > $MEMFILE
+  set | grep ^GLOBAL_ >> $MEMFILE
+}
+
+# Eval the MEMFILE
+evalall() {
+  eval $(<$MEMFILE)
+}
+
+# Run though all the stat functions.
+runall() {
+# for funcs in $(typeset -F | awk '/F_/ {print $NF}'); do
+#   eval $funcs
+# done
+  # loop through each class
+  for class in $(set | awk -F= "/^CLASS_/"'{ print $1 }'); do
+    # find the diff time between this run and the last time the class ran
+    eval $class"_DTIME=$(($CTIME - GLOBAL_$class))"
+
+    # crazy that gets the dtime and defines a new class from the current class in this loop
+    NEWCLASS_DTIME=$(eval "echo \$"$class"_DTIME")
+    declare -a NEWCLASS=$(eval "echo \(\${${class}[@]}\)")
+
+    # if this class's diff time is greater than the timeout set run all of its functions
+    if [ $NEWCLASS_DTIME -ge ${NEWCLASS[0]} ]; then
+      for func in ${NEWCLASS[@]:1}; do
+        eval F_$func
+      done
+      # sets this class's time to current time
+      eval "GLOBAL_$class=$CTIME"
+    fi
+  done
+}
+
+# Unset variables, this will remove them so that MEMFILE doesn't have old info.
+unsett() {
+  key="^STAT_$1_"
+  for var in $(set | awk -F= "/$key/"'{ print $1 }'); do
+    unset $var
+  done
+}
+
+# Echo STATs from prefix passed in. Good for eval-ing a single function.
+printSTAT(){
+  set | grep ^STAT_$1 | awk -F= '{ print $1"=\""$2"\"" }'
+}
+
+printDOC(){
+  grep "^#DOC" "$0" | sed -e 's/^#DOC //'
+  exit
+}
+
+
+runonce(){
+  # Get current time
+  CTIME=`date +%s`
+
+  # Set some vars if no MEMFILE, or eval the MEMFILE
+  if [ ! -e $MEMFILE ]; then
+    runall
+    save
+    return
+  fi
+  # lock our memfile so we don't run over ourselves
+  exec 9>>$MEMFILE
+  if ! flock -n 9; then
+    # another instance is already running
+    evalall
+    return
+  fi
+  evalall
+  runall
+  save
+  flock -u 9
+}
+
+# If we have arguments run them as functions
+if [ "$1" ]; then
+  [ $1 == "refresh" ] && refresh
+  for f in "$@"; do
+    # check that the function exists, if not print DOC and bail
+    command -v "F_$f" > /dev/null
+    if [ $? != 0 ]; then
+      echo "Command '$f' not found"
+	  printDOC
+      exit
+    fi
+  done
+  evalall
+  for f in "$@"; do
+    # run command sending it something
+    F_$f 1
+  done
+  # save work to memfile
+  save
+  exit
+# if we are running stand alone print the DOC and bail
+elif [ $(basename $0) == "bashter" ]; then
+  printDOC
+  exit
+fi
+
+# run our update loop once
+runonce
