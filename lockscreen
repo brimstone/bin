@@ -1,0 +1,7 @@
+#!/bin/sh
+ssh-add -D
+xscreensaver-command --lock
+if [ $? != 0 ]; then
+	xscreensaver &
+	xscreensaver-command --lock
+fi
