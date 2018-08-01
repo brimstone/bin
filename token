@@ -1,0 +1,12 @@
+#!/bin/bash
+
+YKMAN=$HOME/local/ykman/bin/ykman
+
+site="$($YKMAN oath list | xargs -d '\n' zenity --list --text="Select a site" --hide-header --column='a' 2>/dev/null)"
+
+if [ -z "$site" ]; then
+	exit
+fi
+
+token="$($YKMAN oath code "$site" 2>/dev/null | awk '{print $2}')"
+xdotool type "$token"
