@@ -1,5 +1,32 @@
 #!/bin/bash
 
+prettysize(){
+	local size="$1"
+	if [ -z "$size" ]; then
+		return
+	fi
+	if [ "$size" -lt 1024 ]; then
+		echo "$size B"
+		return
+	fi
+	size="$(( "$size" / 1024 ))"
+	if [ "$size" -lt 1024 ]; then
+		echo "$size K"
+		return
+	fi
+	size="$(( "$size" / 1024 ))"
+	echo "$size M"
+}
+
+RUNNING="${RUNNING:-false}"
+if [ "$RUNNING" = "false" ]; then
+	echo '{"version":1,"click_events":true}'
+	echo '[[]'
+	RUNNING=true
+	export RUNNING
+fi
+
+(cat > /tmp/status.log) &
 lastmod="$(stat -c %Y "$0")"
 while true; do
 
@@ -12,24 +39,90 @@ if [ -f /tmp/i3 ]; then
 	fi
 fi
 
-b="$(acpi -b)"
+gwdev="$(ip route list 0/0)"
+gwdev="${gwdev%% }"
+gwdev="${gwdev##* }"
+if [ -n "$gwdev" ]; then
+	gwdevrxold="$gwdevrxnew"
+	gwdevtxold="$gwdevtxnew"
+	gwdevrxnew="$(awk "\$1 == \"$gwdev:\" {print \$2}" /proc/net/dev)"
+	gwdevtxnew="$(awk "\$1 == \"$gwdev:\" {print \$10}" /proc/net/dev)"
+	gwdevrx=$(( gwdevrxnew - gwdevrxold ))
+	gwdevtx=$(( gwdevtxnew - gwdevtxold ))
+
+	status="${status}["
+	status="$status$(prettysize "$gwdevrxnew")"
+	status="$status($(printf "%5s" "$(prettysize "$gwdevrx")")ps)"
+	status="$status ⇵ "
+	status="$status$(prettysize "$gwdevtxnew")"
+	status="$status($(printf "%5s" "$(prettysize "$gwdevtx")")ps)]"
+fi
+
+################################################################################
+# wifi status
+
+if [ -n "$gwdev" ]; then
+	WIFI_IF="$gwdev"
+	AP=$(/sbin/iwconfig "$WIFI_IF" 2>/dev/null| awk '/Access/ {print $NF}')
+	safe="nope"
+	if [ "$AP" != "Not-Associated" ] && [ "$AP" != "dBm" ]; then
+		if [ -e "$HOME/.wifi.aps" ] && grep -q "$AP" ~/.wifi.aps; then
+			safe="$(awk "\$1 == \"$AP\" {print \$3}" $HOME/.wifi.aps)"
+			AP="$(awk "\$1 == \"$AP\" {print \$2}" $HOME/.wifi.aps)"
+		else
+			echo "$AP unknown" >> "$HOME/.wifi.aps"
+		fi
+		if [ "$safe" = "secure" ]; then
+			xscreensaver-command -deactivate 2>/dev/null >/dev/null &
+		fi
+		FREQ=$(/sbin/iwconfig $WIFI_IF 2>/dev/null | awk '/Frequency/{print $2 $3}' | awk -F: '{print $2}' 2>/dev/null)
+		RATE=$(/sbin/iwconfig $WIFI_IF 2>/dev/null | awk '/Bit Rate/ {print $2 $3}' | awk -F= '{print $2}' 2>/dev/null)
+		STRN=$(/sbin/iwconfig $WIFI_IF 2>/dev/null | awk -F"[/=]" '/Quality/ {printf "%0.0f%", ($2 / $3) * 100}' 2>/dev/null)
+		status="${status}[$AP $STRN $FREQ $RATE]"
+	fi
+fi
+
+b="$(acpi -b | grep -v "unavailable")"
 if [ -n "$b" ]; then
 	p="${b%%%*}"
 	p="${p##* }"
 	t="${b% *}"
 	if [[ "$b" =~ "Discharging" ]]; then
 		t="${t##* }"
-		status="$status[$t $p%]"
+		if [ "$t" == "fully" ]; then
+			status="${status}[$p%]"
+		else
+			status="${status}[$t $p%]"
+		fi
 	elif [[ "$b" =~ "Charging" ]]; then
 		t="${t% *}"
 		t="${t##* }"
-		status="$status[$t⚡$p%]"
+		status="${status}[$t⚡$p%]"
 	else
-		status="$status[$p%]"
+		status="${status}[$p%]"
 	fi
 fi
 
-printf "%s\n" "$status[$(date +"%a %b %d ($(date -u +%H))%T")]"
+temp="$(cat /sys/devices/platform/coretemp.0/hwmon/hwmon*/temp*_input \
+        | sort -rn | head -n 1)"
+temp="$(( temp / 1000 ))"
+status="${status}[$temp]"
+
+# fan="_"
+# if [ "$(cat /sys/class/gpio/gpio397/value)" == 1 ]; then
+# 	if [ "$(cat /sys/class/gpio/gpio398/value)" == 1 ]; then
+# 		fan="H"
+# 	else
+# 		fan="L"
+# 	fi
+# else
+# 	if [ "$(cat /sys/class/gpio/gpio398/value)" == 1 ]; then
+# 		fan="M"
+# 	fi
+# fi
+# status="$status[$fan]"
+
+printf ',[{"name":"date","full_text":"%s"}]\n' "${status}[$(date +"%a %b %d ($(date -u +%H))%T")]"
 sleep 1
 
 # Check if we've changed, then reload automatically
