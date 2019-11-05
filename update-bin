@@ -1,0 +1,88 @@
+#!/bin/bash
+set -euo pipefail
+
+case "$1" in
+kubectl)
+	#version="${2:?$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)}"
+	version=${2:?Need version}
+	[ -e "$HOME/bin/kubectl-$version" ] \
+	|| curl -L "https://storage.googleapis.com/kubernetes-release/release/v${version}/bin/linux/amd64/kubectl" -o "$HOME/bin/kubectl-${version}"
+	chmod 755 "$HOME/bin/kubectl-${version}"
+	ln -fs "$HOME/bin/kubectl-${version}" "$HOME/bin/kubectl"
+;;
+kubeadm)
+	#version="${2:?$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)}"
+	version=${2:?Need version}
+	[ -e "$HOME/bin/kubeadm-$version" ] \
+	|| curl -L "https://storage.googleapis.com/kubernetes-release/release/v${version}/bin/linux/amd64/kubeadm" -o "$HOME/bin/kubeadm-${version}"
+	chmod 755 "$HOME/bin/kubeadm-${version}"
+	ln -fs "$HOME/bin/kubeadm-${version}" "$HOME/bin/kubeadm"
+;;
+terraform)
+	version="${2:-$(curl https://checkpoint-api.hashicorp.com/v1/check/terraform -s | jq -r .current_version)}"
+	[ -e "$HOME/bin/terraform-${version}" ] \
+	|| curl -L "https://releases.hashicorp.com/terraform/${version}/terraform_${version}_linux_amd64.zip" \
+	| gunzip -d \
+	> "$HOME/bin/terraform-${version}"
+	chmod 755 "$HOME/bin/terraform-${version}"
+	ln -fs "$HOME/bin/terraform-${version}" ~/bin/terraform
+;;
+terragrunt)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/terragrunt-$version" ] \
+	|| wget "https://github.com/gruntwork-io/terragrunt/releases/download/v${version}/terragrunt_linux_amd64" -O "$HOME/bin/terragrunt-${version}"
+	chmod 755 "$HOME/bin/terragrunt-$version"
+	ln -fs "$HOME/bin/terragrunt-$version" ~/bin/terragrunt
+;;
+kops)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/kops-$version" ] \
+	|| wget "https://github.com/kubernetes/kops/releases/download/${version}/kops-linux-amd64" -O "$HOME/bin/kops-${version}"
+	chmod 755 "$HOME/bin/kops-$version"
+	ln -fs "$HOME/bin/kops-$version" ~/bin/kops
+;;
+helm)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/helm-$version" ] \
+	|| curl "https://storage.googleapis.com/kubernetes-helm/helm-v${version}-linux-amd64.tar.gz" | tar -zx linux-amd64/helm -O > "$HOME/bin/helm-${version}"
+	chmod 755 "$HOME/bin/helm-$version"
+	ln -fs "$HOME/bin/helm-$version" ~/bin/helm
+;;
+uplink)
+	version="${2:?Need version}"
+	cid="$(docker create "storjlabs/uplink:$version")"
+	docker cp "$cid:/app/uplink" ~/bin/uplink-"$version"
+	docker rm "$cid"
+	ln -fs "$HOME/bin/uplink-$version" ~/bin/uplink
+;;
+gateway)
+	version="${2:?Need version}"
+	cid="$(docker create "storjlabs/gateway:$version")"
+	docker cp "$cid:/app/gateway" ~/bin/gateway-"$version"
+	docker rm "$cid"
+	ln -fs "$HOME/bin/gateway-$version" ~/bin/gateway
+;;
+fluxctl)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/fluxctl-$version" ] \
+	|| wget "https://github.com/weaveworks/flux/releases/download/${version}/fluxctl_linux_amd64" -O "$HOME/bin/fluxctl-${version}"
+	chmod 755 "$HOME/bin/fluxctl-$version"
+	ln -fs "$HOME/bin/fluxctl-$version" ~/bin/fluxctl
+;;
+joplin)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/joplin-$version" ] \
+	|| wget "https://github.com/laurent22/joplin/releases/download/v${version}/Joplin-${version}-x86_64.AppImage" -O "$HOME/bin/joplin-${version}"
+	chmod 755 "$HOME/bin/joplin-$version"
+	ln -fs "$HOME/bin/joplin-$version" ~/bin/joplin
+;;
+sops)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/sops-$version" ] \
+	|| wget "https://github.com/mozilla/sops/releases/download/${version}/sops-${version}.linux" -O "$HOME/bin/sops-${version}"
+	chmod 755 "$HOME/bin/sops-$version"
+	ln -fs "$HOME/bin/sops-$version" ~/bin/sops
+;;
+esac
+
+find $HOME/bin -size 0 -delete

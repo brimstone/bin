@@ -1,0 +1,10 @@
+/fluxctl*
+/gateway*
+/helm*
+/joplin*
+/kops*
+/kubectl*
+/sops*
+/terraform*
+/terragrunt*
+/uplink*
