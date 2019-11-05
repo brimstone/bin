@@ -1,0 +1,85 @@
+#!/bin/bash
+
+#export delay=$(tr '\0' '\n' < /proc/$(ps -p $PPID -o ppid --no-headers)/cmdline | grep -A 1 -- -delay | tail -n 1)
+
+echo "pppd: pppd 2.3.5 started by root, uid 0"
+echo "chat: send(AT)"
+echo "chat: OK"
+
+echo "chat: send (ATDT $[ $RANDOM % 900 + 100 ] $[ $RANDOM % 900 + 100 ] $[ $RANDOM % 9000 + 1000 ])"
+sleep $[ $RANDOM % 20 + 10 ]
+if [ $[ $RANDOM % 5 ] = 0 ]; then
+	echo "chat: BUSY"
+	exit 
+fi
+echo "pppd: Serial connection established."
+echo "chat: CONNECT"
+echo "pppd: Using interface ppp0"
+echo "pppd: Connect ppp0"
+
+echo 
+usernames=( root guest ftp www-data apache $USER )
+login=false
+for ((tries=0; tries < 5; tries++)); do
+	let "user = $RANDOM % ${#usernames[*]}"
+	echo -n "Login: "
+	sleep 3
+	echo "${usernames[$user]}"
+	echo -n "Password: "
+	sleep 3
+	length=$[ $RANDOM % 10 + 1 ]
+	for ((f=0;f < $length; f++)); do
+		echo -n "*"
+	done
+	echo
+	echo
+
+	if [ $[ $RANDOM % 10 ] == 0 ]; then
+		echo "Last login: $(date) from ppp0"
+		login=true
+		break
+	fi
+	echo "Access denied"
+	echo
+done
+
+if ! $login; then
+	echo "pppd: Connection closed"
+	echo -n "Restarting in..."
+	sleep 6
+	for ((f=3;f>0;f--)); do
+		echo -n "$f..."
+		sleep 2
+	done
+	echo
+	exit
+fi
+
+user="${usernames[$user]}"
+prompt="$"
+if [ "$user" = "root" ]; then
+	prompt="#"
+fi
+
+HNAME=$HOSTNAME
+
+echo -n "[$user@$HNAME ~]$prompt "
+sleep 5
+
+echo "uptime"
+uptime
+echo -n "[$user@$HNAME ~]$prompt "
+
+sleep 10
+echo "free -m"
+free -m
+echo -n "[$user@$HNAME ~]$prompt "
+
+sleep 20
+echo "df -h"
+df -h
+echo -n "[$user@$HNAME ~]$prompt "
+
+sleep 20
+echo "exit"
+sleep 30
