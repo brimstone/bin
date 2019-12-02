@@ -90,6 +90,13 @@ ripcord)
 	chmod 755 "$HOME/bin/ripcord-$version"
 	#ln -fs "$HOME/bin/ripcord-$version" ~/bin/ripcord
 ;;
+hugo)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/hugo-$version" ] \
+	|| curl -L "https://github.com/gohugoio/hugo/releases/download/v${version}/hugo_${version}_Linux-64bit.tar.gz" | tar -zx hugo -O > "$HOME/bin/hugo-${version}"
+	chmod 755 "$HOME/bin/hugo-$version"
+	ln -fs "$HOME/bin/hugo-$version" ~/bin/hugo
+;;
 esac
 
 find $HOME/bin -size 0 -delete
