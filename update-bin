@@ -83,6 +83,13 @@ sops)
 	chmod 755 "$HOME/bin/sops-$version"
 	ln -fs "$HOME/bin/sops-$version" ~/bin/sops
 ;;
+ripcord)
+	version=${2:?Need version}
+	[ -e "$HOME/bin/ripcord-$version" ] \
+	|| wget "https://cancel.fm/dl/Ripcord-${version}-x86_64.AppImage" -O "$HOME/bin/ripcord-${version}"
+	chmod 755 "$HOME/bin/ripcord-$version"
+	#ln -fs "$HOME/bin/ripcord-$version" ~/bin/ripcord
+;;
 esac
 
 find $HOME/bin -size 0 -delete
