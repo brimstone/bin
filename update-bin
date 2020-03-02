@@ -72,7 +72,7 @@ fluxctl)
 joplin)
 	version=${2:?Need version}
 	[ -e "$HOME/bin/joplin-$version" ] \
-	|| wget "https://github.com/laurent22/joplin/releases/download/v${version}/Joplin-${version}-x86_64.AppImage" -O "$HOME/bin/joplin-${version}"
+	|| wget "https://github.com/laurent22/joplin/releases/download/v${version}/Joplin-${version}.AppImage" -O "$HOME/bin/joplin-${version}"
 	chmod 755 "$HOME/bin/joplin-$version"
 	ln -fs "$HOME/bin/joplin-$version" ~/bin/joplin
 ;;
