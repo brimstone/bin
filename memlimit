@@ -1,8 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+help(){
+	echo "Usage: $0 [-l|-m memory <-n name> cmd...]"
+	echo "-l List cgroup usage by name (-n)"
+	echo "-m Memory limit as integer in megabytes"
+	echo "-n Name of cgroup"
+}
+
 list="false"
-while getopts ":m:n:l" opt; do
+while getopts ":m:n:lh" opt; do
 	case "$opt" in
 		m)
 			memory="$OPTARG"
@@ -11,7 +18,16 @@ while getopts ":m:n:l" opt; do
 			name="$OPTARG"
 		;;
 		l)
-		list="true"
+			list="true"
+		;;
+		h)
+			help
+			exit
+		;;
+		*)
+			echo "Unknown option"
+			help
+			exit 1
 		;;
 	esac
 done
