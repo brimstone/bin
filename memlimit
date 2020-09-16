@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+list="false"
+while getopts ":m:n:l" opt; do
+	case "$opt" in
+		m)
+			memory="$OPTARG"
+		;;
+		n)
+			name="$OPTARG"
+		;;
+		l)
+		list="true"
+		;;
+	esac
+done
+
+# Handle list request first
+if [ "$list" = "true" ]; then
+	for n in /sys/fs/cgroup/memory/$USER/*; do
+		if [ ! -d "$n" ]; then
+			continue
+		fi
+		n="${n##*/}"
+		u="$(< /sys/fs/cgroup/memory/$USER/$n/memory.usage_in_bytes)"
+		l="$(< /sys/fs/cgroup/memory/$USER/$n/memory.limit_in_bytes)"
+		p="$(echo "scale=2;$u * 100 / $l" | bc -l)"
+		echo "$n: $(( $u / 1024 / 1024 ))/$(( $l / 1024 / 1024 )) $p%"
+	done
+	exit
+fi
+
+shift $(( OPTIND - 1 ))
+if [[ -z "${name:-}" ]]; then
+	name="$1"
+fi
+
+if [ ! -d /sys/fs/cgroup/memory/$USER ]; then
+	echo "Setting up user cgroup with sudo"
+	sudo cgcreate -a $USER -t $USER -g memory:"$USER"
+fi
+echo "Setting up cgroup"
+cgcreate -a $USER -t $USER -g memory:"$USER/$name"
+echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
+trap "echo Removing cgroup; cgdelete -g memory:\"$USER/$name\"" EXIT
+cgexec -g memory:"$USER/$name" "$@"
