@@ -2,14 +2,16 @@
 set -euo pipefail
 
 help(){
-	echo "Usage: $0 [-l|-m memory <-n name> cmd...]"
+	echo "Usage: $0 [-l|-m memory <-n name> cmd...|-m memory -u name]"
 	echo "-l List cgroup usage by name (-n)"
 	echo "-m Memory limit as integer in megabytes"
 	echo "-n Name of cgroup"
+	echo "-u Update memory limit of cgroup"
 }
 
-list="false"
-while getopts ":m:n:lh" opt; do
+op="run"
+memory=""
+while getopts ":m:u:n:lh" opt; do
 	case "$opt" in
 		m)
 			memory="$OPTARG"
@@ -17,8 +19,12 @@ while getopts ":m:n:lh" opt; do
 		n)
 			name="$OPTARG"
 		;;
+		u)
+			name="$OPTARG"
+			op="update"
+		;;
 		l)
-			list="true"
+			op="list"
 		;;
 		h)
 			help
@@ -32,8 +38,9 @@ while getopts ":m:n:lh" opt; do
 	esac
 done
 
+
 # Handle list request first
-if [ "$list" = "true" ]; then
+if [ "$op" = "list" ]; then
 	for n in /sys/fs/cgroup/memory/$USER/*; do
 		if [ ! -d "$n" ]; then
 			continue
@@ -45,19 +52,32 @@ if [ "$list" = "true" ]; then
 		echo "$n: $(( $u / 1024 / 1024 ))/$(( $l / 1024 / 1024 )) $p%"
 	done
 	exit
-fi
+elif [ "$op" = "update" ]; then
+	echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
+	exit
+elif [ "$op" = "run" ]; then
+	shift $(( OPTIND - 1 ))
+	if [ "$#" = "0" ]; then
+		echo "Missing command"
+		help
+		exit 1
+	fi
+	if [ -z "$memory" ]; then
+		echo "Missing memory"
+		help
+		exit 1
+	fi
+	if [[ -z "${name:-}" ]]; then
+		name="$1"
+	fi
 
-shift $(( OPTIND - 1 ))
-if [[ -z "${name:-}" ]]; then
-	name="$1"
+	if [ ! -d /sys/fs/cgroup/memory/$USER ]; then
+		echo "Setting up user cgroup with sudo"
+		sudo cgcreate -a $USER -t $USER -g memory:"$USER"
+	fi
+	echo "Setting up cgroup"
+	cgcreate -a $USER -t $USER -g memory:"$USER/$name"
+	echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
+	trap "echo Removing cgroup; cgdelete -g memory:\"$USER/$name\"" EXIT
+	cgexec -g memory:"$USER/$name" "$@"
 fi
-
-if [ ! -d /sys/fs/cgroup/memory/$USER ]; then
-	echo "Setting up user cgroup with sudo"
-	sudo cgcreate -a $USER -t $USER -g memory:"$USER"
-fi
-echo "Setting up cgroup"
-cgcreate -a $USER -t $USER -g memory:"$USER/$name"
-echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
-trap "echo Removing cgroup; cgdelete -g memory:\"$USER/$name\"" EXIT
-cgexec -g memory:"$USER/$name" "$@"
