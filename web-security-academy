@@ -8,18 +8,23 @@ trap cleanup SIGINT SIGTERM ERR EXIT
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 
 usage() {
+[ -n "${1:-}" ] && msg "${1:-}" && echo
 	cat <<EOF
-Usage: $(basename "${BASH_SOURCE[0]}") [-h] [-v] [-f] -p exploit_value arg1 [arg2...]
+Usage: $(basename "${BASH_SOURCE[0]}") [-h] -l lab_url command
 
-Script description here.
+A simple CLI tool for Portswigger's Web Security Academy.
 
 Available options:
 
--h, --help      Print this help and exit
--v, --verbose   Print script debug info
--e, --exploit     Some param description
+-h, --help Print this help and exit
+-l, --lab  Some param description
+
+Available commands:
+
+log        Show log on exploit server
+ide        Edit a payload in ${EDITOR:-vi} and upload to Exploit Server when changed.
 EOF
-	exit
+exit ${2-1}
 }
 
 cleanup() {
@@ -52,14 +57,14 @@ parse_params() {
 
 	while :; do
 		case "${1-}" in
-		-h | --help) usage ;;
+		-h | --help) usage "" 0 ;;
 		-v | --verbose) set -x ;;
 		--no-color) NO_COLOR=1 ;;
 		-l | --lab) # lab server
 			labserver="${2-}"
 			shift
 			;;
-		-?*) die "Unknown option: $1" ;;
+		-?*) usage "Unknown option: $1" ;;
 		*) break ;;
 		esac
 		shift
@@ -68,8 +73,8 @@ parse_params() {
 	args=("$@")
 
 	# check required params and arguments
-	[[ -z "${labserver-}" ]] && die "Missing required parameter: lab"
-	[[ ${#args[@]} -eq 0 ]] && die "Missing script arguments"
+	[[ -z "${labserver-}" ]] && usage "Missing required parameter: lab"
+	[[ ${#args[@]} -eq 0 ]] && usage "Missing script arguments"
 
 	return 0
 }
@@ -93,7 +98,9 @@ setup_colors
 
 # script logic here
 
+trap "Error reaching ${labserver}" EXIT
 exploitserver="https$(curl -s "${labserver}" | grep 'Go to exploit server' | sed "s/^.*https//;s/'.*//")"
+trap - EXIT
 
 case "${args[0]}" in
 	"ide")
@@ -124,6 +131,6 @@ case "${args[0]}" in
 		watch "curl -s \"${exploitserver}/log\" | grep -v \"$ip\" | awk '/\/pre>/{a=0}a==1{print}/pre /{a=1}' | sed 's/&quot;/\"/g'"
 	;;
 	*)
-		die "Unknown subcommand: ${args[0]}"
+		usage "Unknown subcommand: ${args[0]}"
 	;;
 esac
