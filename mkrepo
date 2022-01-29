@@ -1,0 +1,13 @@
+#!/bin/bash
+
+find . -iname '*.deb' | while read -r deb; do
+	mv "$deb" "$(dpkg-scanpackages "$deb" 2>/dev/null | awk '/^Package:/ {p=$2} /^Version:/ {v=$2} /^Architecture/ {a=$2} END {print p "_" v "_" a ".deb"}')"
+done
+rm -f public.key Packages Release Release.gpg
+apt-ftparchive packages . > Packages
+(
+	echo Suite: "$(basename "$PWD")"/
+	apt-ftparchive release Packages
+)> Release
+gpg -abs -o Release.gpg Release
+gpg --export --armor "A4F9 7392 6917 7FAB C5DB  FCCD 1345 FF3B F4D5 5FD8" > public.key
