@@ -38,6 +38,10 @@ while getopts ":m:u:n:lh" opt; do
 	esac
 done
 
+if [ ! -d /sys/fs/cgroup/memory/$USER ]; then
+	echo "Setting up user cgroup with sudo"
+	sudo cgcreate -a $USER -t $USER -g memory:"$USER"
+fi
 
 # Handle list request first
 if [ "$op" = "list" ]; then
@@ -71,10 +75,6 @@ elif [ "$op" = "run" ]; then
 		name="$1"
 	fi
 
-	if [ ! -d /sys/fs/cgroup/memory/$USER ]; then
-		echo "Setting up user cgroup with sudo"
-		sudo cgcreate -a $USER -t $USER -g memory:"$USER"
-	fi
 	echo "Setting up cgroup"
 	cgcreate -a $USER -t $USER -g memory:"$USER/$name"
 	echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
