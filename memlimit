@@ -4,17 +4,21 @@ set -euo pipefail
 help(){
 	echo "Usage: $0 [-l|-m memory <-n name> cmd...|-m memory -u name]"
 	echo "-l List cgroup usage by name (-n)"
-	echo "-m Memory limit as integer in megabytes"
+	echo "-m Real memory limit as integer in megabytes"
+	echo "-s Swap memory limit as integer in megabytes"
 	echo "-n Name of cgroup"
 	echo "-u Update memory limit of cgroup"
 }
 
 op="run"
 memory=""
-while getopts ":m:u:n:lh" opt; do
+while getopts ":m:s:u:n:lh" opt; do
 	case "$opt" in
 		m)
 			memory="$OPTARG"
+		;;
+		s)
+			swap="$OPTARG"
 		;;
 		n)
 			name="$OPTARG"
@@ -57,7 +61,12 @@ if [ "$op" = "list" ]; then
 	done
 	exit
 elif [ "$op" = "update" ]; then
-	echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
+	if [ -n "$memory" ]; then
+		echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
+	fi
+	if [ -n "$swap" ]; then
+		echo $(( $swap * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.memsw.limit_in_bytes
+	fi
 	exit
 elif [ "$op" = "run" ]; then
 	shift $(( OPTIND - 1 ))
@@ -78,6 +87,12 @@ elif [ "$op" = "run" ]; then
 	echo "Setting up cgroup"
 	cgcreate -a $USER -t $USER -g memory:"$USER/$name"
 	echo $(( $memory * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.limit_in_bytes
-	trap "echo Removing cgroup; cgdelete -g memory:\"$USER/$name\"" EXIT
-	cgexec -g memory:"$USER/$name" "$@"
+	if [ -n "$swap" ]; then
+		echo $(( $swap * 1024 * 1024 )) > /sys/fs/cgroup/memory/$USER/"$name"/memory.memsw.limit_in_bytes
+	fi
+	ret=0
+	cgexec -g memory:"$USER/$name" "$@" || ret=$?
+	echo "Removing cgroup"
+	cgdelete -g memory:"$USER/$name"
+	exit "$ret"
 fi
